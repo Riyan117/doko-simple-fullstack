@@ -1,0 +1,12 @@
+# Abaikan dependensi yang diinstall secara lokal
+node_modules
+
+# Abaikan file log
+npm-debug.log
+
+# Abaikan direktori hasil build
+build
+dist
+
+# Abaikan file environment
+.env

@@ -1,0 +1,88 @@
+services:
+  db:
+    image: postgres:13-alpine
+    container_name: doko_db
+    restart: always
+    environment:
+      - POSTGRES_USER=user
+      - POSTGRES_PASSWORD=password
+      - POSTGRES_DB=app_db
+    volumes:
+      - db_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+
+  backend:
+    build: ./backend
+    container_name: doko_backend
+    restart: always
+    ports:
+      - "8080:8080"
+    depends_on:
+      - db
+    environment:
+      - DB_HOST=db
+      - DB_USER=user
+      - DB_PASSWORD=password
+      - DB_NAME=app_db
+
+  frontend:
+    build: ./frontend
+    container_name: doko_frontend
+    restart: always
+    ports:
+      - "80:80"
+    depends_on:
+      - backend
+
+  influxdb:
+    image: influxdb:1.8
+    container_name: doko_influxdb
+    ports:
+      - "8086:8086"
+    volumes:
+      - influxdb_data:/var/lib/influxdb
+    environment:
+      - INFLUXDB_DB=k6
+
+  grafana:
+    image: grafana/grafana:latest
+    container_name: doko_grafana
+    ports:
+      - "3000:3000"
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./grafana/provisioning:/etc/grafana/provisioning
+      - ./grafana/dashboards:/var/lib/grafana/dashboards
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+    depends_on:
+      - influxdb
+
+  playwright:
+    image: mcr.microsoft.com/playwright:v1.56.0-jammy
+    container_name: doko_playwright
+    volumes:
+      - ./frontend:/app
+    working_dir: /app
+    command: npx playwright test
+    depends_on:
+      - frontend
+
+  k6:
+    image: grafana/k6
+    container_name: doko_k6
+    volumes:
+      - ./k6:/scripts
+    environment:
+      - K6_OUT=influxdb=http://influxdb:8086/k6
+    command: run /scripts/script.js
+    depends_on:
+      - backend
+      - influxdb
+
+volumes:
+  db_data:
+  influxdb_data:
+  grafana_data:
