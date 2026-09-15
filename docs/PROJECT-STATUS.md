@@ -10,11 +10,10 @@ Update terakhir: 2026-09-15
 - Diverifikasi end-to-end di k3d (bukan cuma validasi YAML): frontend kebuka, `/api/hello`
   jalan lewat nginx→backend→Postgres, log masuk Postgres, Postgres tidak reachable dari
   host.
-- Known issue: backend sempat `CrashLoopBackOff` beberapa kali tiap cluster BARU dibuat
-  (`ECONNREFUSED` ke Service ClusterIP) — kube-proxy/rules jaringan k3d belum settle penuh
-  di detik-detik awal. Self-heal dalam <5 menit tanpa intervensi (backoff kubelet), sudah
-  terjadi 2x (Fase 1 & Fase 2) dengan pola sama. **Rencana perbaikan tuntas: Fase 4**
-  (readiness probe akan menahan traffic sampai app benar-benar siap).
+- Known issue (RESOLVED di Fase 4): backend sempat `CrashLoopBackOff` beberapa kali tiap
+  cluster BARU dibuat (`ECONNREFUSED` ke Service ClusterIP saat jaringan k3d belum settle
+  penuh) — root cause: unhandled rejection di `initializeDatabase()`. Lihat detail fix di
+  bagian Fase 4.
 
 ### Fase 2 — Prometheus + instrumentasi app ✅
 - `backend/server.js`: instrumentasi `prom-client` — endpoint `GET /metrics`, metrik
@@ -56,6 +55,35 @@ Update terakhir: 2026-09-15
   connected, recording rule menghasilkan angka valid (0, bukan NaN/kosong)
   setelah traffic nyata.
 
+### Fase 4 — Probe, resource limit, HPA ✅
+- `backend/server.js`: **root cause fix known issue Fase 1-3** (backend
+  CrashLoopBackOff di k3d) — `initializeDatabase()` dulu melempar *unhandled
+  rejection* kalau `pool.connect()` gagal (ECONNREFUSED saat jaringan cluster
+  belum settle), Bun mematikan proses akibatnya. Diperbaiki jadi retry loop
+  tak terbatas (2s delay), tidak pernah throw. Tambah `GET /healthz/live`
+  (selalu 200, tidak cek DB) dan `GET /healthz/ready` (503 sampai `dbReady`).
+  Keduanya dikecualikan dari middleware metrik (sama seperti `/metrics`) biar
+  trafik probe kubelet tidak mengotori error budget.
+- `k8s/03-backend.yaml`: `resources.requests` (50m CPU/64Mi) & `limits` (200m
+  CPU/128Mi), `livenessProbe` (`/healthz/live`, tidak cek DB — restart hanya
+  kalau proses benar mati), `readinessProbe` (`/healthz/ready` — pod ditahan
+  dari Service endpoints saat DB belum siap, TANPA direstart).
+- `k8s/06-backend-hpa.yaml`: HPA CPU-based, min 1/max 3, target 70%.
+- **Regression gate**: Playwright PASS. k6 error rate 1.51% (di bawah baseline
+  1.90%, bukan kenaikan). Latency naik lagi (pola sama seperti Fase 2/3,
+  dicatat sebagai data poin lingkungan, bukan sebab kausal dari kode).
+- **Diverifikasi end-to-end di k3d — bukti fix known issue**: backend restart
+  count = **0** (dulu selalu 5-8x tiap cluster baru dibuat). Log menunjukkan
+  14x retry ECONNREFUSED lalu berhasil connect, proses tidak pernah mati.
+  HPA diuji nyata: burst request → CPU 76%/70% → scale-up ke 3 replika →
+  CPU turun ke 40% rata-rata → semua replika baru RESTARTS=0.
+- **Catatan (di luar scope Fase 4, belum diperbaiki)**: pod `frontend` masih
+  sesekali restart 1x di awal cluster baru (kemungkinan race jaringan serupa,
+  tapi nginx statis tidak sensitif seperti backend). Tidak mengganggu
+  fungsionalitas (pod tetap Running & sehat setelahnya). Dicatat untuk
+  ditinjau kalau relevan di fase berikutnya, tidak diburu sekarang karena di
+  luar scope eksplisit Fase 4.
+
 ## Keputusan arsitektur yang berlaku sepanjang proyek
 - Sumber angka SLO otoritatif = Prometheus di dalam cluster, BUKAN k6 di laptop (k6 cuma
   data poin, bukan kebenaran, karena resource laptop tidak representatif).
@@ -77,4 +105,4 @@ Update terakhir: 2026-09-15
 - Branch: `feature/k3s-reliability-showcase` (belum di-push, menunggu instruksi)
 - Cluster k3d `doko` sedang aktif dengan Fase 1+2 ter-deploy (untuk verifikasi manual
   kalau mau dicek langsung)
-- **Fase 3 selesai. Lanjut Fase 4 (probe, resource limit, HPA).**
+- **Fase 4 selesai. Lanjut Fase 5 (chaos + postmortem).**
