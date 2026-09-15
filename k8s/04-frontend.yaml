@@ -39,12 +39,21 @@ spec:
       labels:
         app: frontend
     spec:
+      # Frontend (nginx statis) tidak pernah panggil Kubernetes API.
+      automountServiceAccountToken: false
       containers:
         - name: frontend
           image: doko-frontend:local
           imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 80
+          resources:
+            requests:
+              cpu: 25m
+              memory: 32Mi
+            limits:
+              cpu: 100m
+              memory: 64Mi
           volumeMounts:
             # subPath "nginx.conf" -> hanya file ini yang ditimpa di dalam
             # image, jadi tidak menghapus konten /etc/nginx/conf.d/ lainnya.
