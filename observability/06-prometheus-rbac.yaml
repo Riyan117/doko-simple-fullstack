@@ -1,0 +1,34 @@
+# RBAC minimal supaya Prometheus bisa Kubernetes service discovery (baca
+# daftar pod di belakang Service "backend") dan scrape SETIAP pod langsung,
+# bukan lewat ClusterIP Service. Scoped ke namespace "doko" saja (Role, bukan
+# ClusterRole) — least privilege, Prometheus tidak perlu lihat resource di
+# namespace lain.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: prometheus
+  namespace: doko
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: prometheus
+  namespace: doko
+rules:
+  - apiGroups: [""]
+    resources: ["endpoints", "services", "pods"]
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: prometheus
+  namespace: doko
+subjects:
+  - kind: ServiceAccount
+    name: prometheus
+    namespace: doko
+roleRef:
+  kind: Role
+  name: prometheus
+  apiGroup: rbac.authorization.k8s.io

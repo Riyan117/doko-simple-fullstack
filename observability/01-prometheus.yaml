@@ -17,6 +17,10 @@ spec:
       labels:
         app: prometheus
     spec:
+      # ServiceAccount dengan Role baca endpoints/pods/services (lihat
+      # 06-prometheus-rbac.yaml) — dibutuhkan untuk Kubernetes service
+      # discovery di scrape config (00-prometheus-configmap.yaml).
+      serviceAccountName: prometheus
       containers:
         - name: prometheus
           image: prom/prometheus:v2.55.1

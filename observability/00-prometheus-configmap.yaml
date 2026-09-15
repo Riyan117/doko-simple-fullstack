@@ -1,7 +1,15 @@
-# Scrape config statis (bukan Prometheus Operator/ServiceMonitor — sengaja
-# dihindari biar ringan buat target akhir STB arm64). Target "backend:8080"
-# pakai nama Service dari k8s/03-backend.yaml, resolve via DNS internal
-# cluster karena satu namespace ("doko").
+# PENTING: job "backend" scrape lewat Kubernetes service discovery (role:
+# endpoints), BUKAN static target ke Service ClusterIP. Kalau di-scrape lewat
+# ClusterIP, tiap scrape di-load-balance kube-proxy ke pod backend yang
+# BERBEDA-BEDA secara acak — dan karena tiap pod punya counter proses sendiri
+# (mulai dari 0 sejak pod start), hasilnya counter yang "kelihatan" Prometheus
+# loncat naik-turun tidak keruan begitu replika backend > 1 (ditemukan saat
+# HPA Fase 4 aktif, lihat docs/PROJECT-STATUS.md). Endpoints discovery bikin
+# Prometheus scrape SETIAP pod langsung by IP — masing-masing jadi time series
+# sendiri yang konsisten monoton, baru diagregasi pakai sum() di level query
+# (recording rules Fase 3 sudah begitu, tidak perlu diubah).
+# Bukan Prometheus Operator/ServiceMonitor — tetap ringan, cukup native
+# kubernetes_sd_configs. Butuh RBAC (lihat 06-prometheus-rbac.yaml).
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -23,5 +31,22 @@ data:
 
     scrape_configs:
       - job_name: 'backend'
-        static_configs:
-          - targets: ['backend:8080']
+        kubernetes_sd_configs:
+          - role: endpoints
+            namespaces:
+              names: ['doko']
+        relabel_configs:
+          # Cuma pod di belakang Service "backend"...
+          - source_labels: [__meta_kubernetes_service_name]
+            regex: backend
+            action: keep
+          # ...dan cuma address yang statusnya Ready (jangan scrape pod yang
+          # masih starting/belum lolos readinessProbe).
+          - source_labels: [__meta_kubernetes_endpoint_ready]
+            regex: 'true'
+            action: keep
+          # Label tambahan biar enak dibaca di query/dashboard.
+          - source_labels: [__meta_kubernetes_pod_name]
+            target_label: pod
+          - source_labels: [__meta_kubernetes_namespace]
+            target_label: namespace
