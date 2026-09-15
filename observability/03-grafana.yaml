@@ -13,11 +13,20 @@ spec:
       labels:
         app: grafana
     spec:
+      # Grafana tidak pernah panggil Kubernetes API.
+      automountServiceAccountToken: false
       containers:
         - name: grafana
           image: grafana/grafana:11.3.1
           ports:
             - containerPort: 3000
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              cpu: 200m
+              memory: 256Mi
           env:
             # Kredensial default sama seperti Grafana docker-compose — disposable,
             # khusus latihan lokal (catatan sama seperti k8s/01-secret-postgres.yaml).

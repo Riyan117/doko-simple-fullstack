@@ -35,6 +35,8 @@ spec:
       labels:
         app: alertmanager
     spec:
+      # Alertmanager tidak pernah panggil Kubernetes API.
+      automountServiceAccountToken: false
       containers:
         - name: alertmanager
           image: prom/alertmanager:v0.28.0
@@ -42,6 +44,13 @@ spec:
             - --config.file=/etc/alertmanager/alertmanager.yml
           ports:
             - containerPort: 9093
+          resources:
+            requests:
+              cpu: 25m
+              memory: 32Mi
+            limits:
+              cpu: 100m
+              memory: 128Mi
           volumeMounts:
             - name: config
               mountPath: /etc/alertmanager/alertmanager.yml
