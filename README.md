@@ -110,14 +110,53 @@ service discovery (scrape per-pod langsung by IP).
 
 Karena bug ini berarti recording rule SLO Fase 3 berpotensi tidak akurat
 saat postmortem Fase 5 ditulis, **ketiga skenario chaos diverifikasi ulang
-pasca-fix** — hasilnya menarik: angka availability tetap konsisten (0% di
-kedua pengukuran), tapi angka SLI latency (`slo:latency_bad:ratio_rate5m`)
-naik signifikan pasca-fix di dua skenario (CPU stress: 0.66%→1.71%, latency
-injection: 0.46%→2.31%) — pola arah yang sama mengindikasikan bug ini
-kemungkinan secara sistematis **meremehkan** rasio "lambat", bukan cuma
-noise acak. Kesimpulan kualitatif tiap postmortem tetap valid; angka lama
-TIDAK ditimpa, dicatat berdampingan sebagai bukti nyata dampak bug. Detail
-lengkap & perbandingan angka: [docs/PROJECT-STATUS.md](docs/PROJECT-STATUS.md).
+pasca-fix** — lihat "Catatan Integritas Pengukuran" di bawah untuk angkanya.
+
+---
+
+## Catatan Integritas Pengukuran
+
+Bug scrape-via-Service di atas berarti angka SLI Prometheus yang dikutip di
+postmortem Fase 5 diukur SEBELUM fix (commit postmortem `3c34b0a` lebih dulu
+dari commit fix `28a9c95` — dicek lewat `git log`). Bukan diasumsikan aman,
+tapi diverifikasi ulang: **ketiga skenario chaos dijalankan kembali** di
+cluster k3d yang sama setelah fix, dengan metodologi identik.
+
+| Skenario | Metrik | Pre-fix | Post-fix |
+|---|---|---|---|
+| Pod-kill | HTTP request sukses | 150/150 | 150/150 (diulang 2x) |
+| Pod-kill | MTTR | 8 detik | 8 detik (identik) |
+| Pod-kill | SLI availability (`slo:availability_error:ratio_rate5m`) | 0% | 0% |
+| CPU stress | HTTP request sukses | 400/400 | 400/400 |
+| CPU stress | SLI latency (`slo:latency_bad:ratio_rate5m`) | 0.66% | **1.71%** |
+| Latency injection | HTTP request sukses | 200/200 | 200/200 |
+| Latency injection | Request kena pod ber-delay | 2/200 (1%) | 3/200 (1.5%) |
+| Latency injection | SLI latency | 0.46% | **2.31%** |
+
+**Yang tidak berubah**: angka dari observasi HTTP langsung (curl) — sukses
+rate, MTTR, temuan distribusi load balancing — sama sekali tidak
+terpengaruh bug ini, karena tidak pernah lewat Prometheus. SLI availability
+(binary, selalu 0% karena memang tidak pernah ada 5xx) juga tetap identik.
+
+**Yang berubah**: kedua angka SLI latency (non-zero, rate-based) naik
+signifikan pasca-fix (2.6x dan 5x). Arahnya konsisten di dua eksperimen
+independen — bukan berubah acak ke arah berbeda-beda — yang mengindikasikan
+bug ini kemungkinan secara sistematis **meremehkan** rasio "lambat" sebelum
+diperbaiki. Kami tidak mengklaim tahu persis proporsi penyebabnya (bug murni
+vs variasi run-to-run lingkungan laptop, yang juga terlihat cukup besar di
+tempat lain sepanjang proyek ini) — tapi konsistensi arah di dua eksperimen
+mendukung dugaan itu.
+
+**Prinsipnya**: angka lama TIDAK ditimpa diam-diam. Pre-fix dan post-fix
+dicatat berdampingan di tiap postmortem (
+[pod-kill](postmortems/2026-09-15-pod-kill.md),
+[cpu-stress](postmortems/2026-09-15-cpu-stress.md),
+[latency-injection](postmortems/2026-09-15-latency-injection.md)) sebagai
+bukti nyata dampak bug, bukan dibersihkan dari catatan. Kesimpulan
+kualitatif tiap eksperimen (availability tidak terdampak chaos, load
+balancing Traefik tidak merata) tetap valid di kedua pengukuran — yang
+berubah cuma presisi angkanya, bukan arah kesimpulannya. Detail lengkap:
+[docs/PROJECT-STATUS.md](docs/PROJECT-STATUS.md).
 
 ---
 
