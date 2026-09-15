@@ -89,16 +89,33 @@ selalu diarahkan ke pod yang bermasalah). Ini bukan kesimpulan
 | Investigasi algoritma load balancing Traefik (kalau presisi distribusi traffic jadi kebutuhan) | Belum dikerjakan |
 | Uji skenario delay di SEMUA pod sekaligus (mendekati kondisi jaringan homelab bermasalah) | Belum dikerjakan |
 
-## ⚠️ Caveat (ditambahkan setelah Fase 6)
+## Addendum (2026-09-15, setelah Fase 6): verifikasi ulang pasca-fix scrape bug
 
-Sama seperti `postmortems/2026-09-15-cpu-stress.md`: eksperimen ini
-dijalankan **sebelum** fix bug "Prometheus scrape-via-Service" (lihat
-`docs/PROJECT-STATUS.md` Fase 6). Angka **`200/200` request sukses** dari
-observasi HTTP langsung tetap valid. Tapi **`slo:latency_bad:ratio_rate5m`
-= 0.46%** dan temuan **"cuma 2/200 (1%) request kena pod ber-delay"** —
-yang terakhir ini dihitung dari observasi HTTP langsung juga (bukan
-Prometheus), jadi **tetap valid**. Yang berpotensi meleset cuma angka
-0.46% SLI dari Prometheus. Belum diulang setelah fix. Temuan utama
-eksperimen ini (distribusi load balancing tidak merata) TIDAK terpengaruh
-caveat ini karena diukur independen dari Prometheus.
-| Uji skenario delay di SEMUA pod sekaligus (mendekati kondisi jaringan homelab bermasalah) | Belum dikerjakan |
+Eksperimen ini awalnya dijalankan **sebelum** fix bug "Prometheus
+scrape-via-Service" (lihat `docs/PROJECT-STATUS.md` Fase 6). Angka
+**`200/200` request sukses** dan temuan **"cuma 2/200 (1%) request kena pod
+ber-delay"** — keduanya dari observasi HTTP langsung (curl), **tidak
+terpengaruh** bug ini. Tapi `slo:latency_bad:ratio_rate5m` = 0.46% diukur
+dari Prometheus sebelum fix.
+
+**Diulang setelah fix** (06:03-06:05 UTC, delay 300ms±50ms diinjeksi ke 1
+dari 3 pod, 200 request monitoring identik):
+
+| Metrik | Sebelum fix (pre-scrape-fix) | Sesudah fix (post-scrape-fix) |
+|---|---|---|
+| HTTP request sukses | 200/200 | 200/200 |
+| Request kena pod ber-delay | 2/200 (1%) | 3/200 (1.5%) |
+| `slo:latency_bad:ratio_rate5m` | 0.46% | **2.31%** |
+| `slo:availability_error:ratio_rate5m` | 0% | 0% |
+
+**Temuan utama (distribusi load balancing tidak merata) TETAP KONSISTEN**
+di kedua pengukuran (1% vs 1.5%, sama-sama jauh di bawah ekspektasi naif
+~33%) — ini memperkuat, bukan melemahkan, temuan aslinya. Tapi
+**`slo:latency_bad:ratio_rate5m` naik ~5x (0.46% → 2.31%)**, pola arah yang
+sama dengan `postmortems/2026-09-15-cpu-stress.md` (juga naik pasca-fix).
+Kami tidak mengklaim tahu persis proporsi penyebabnya (bug scrape murni vs
+variasi run-to-run lingkungan laptop yang memang sudah terlihat di
+eksperimen-eksperimen lain sepanjang proyek ini), tapi arah konsisten di
+dua eksperimen independen memperkuat dugaan bug scrape secara sistematis
+**meremehkan** rasio "lambat" sebelum diperbaiki. Kedua angka dicatat apa
+adanya, bukan saling menimpa.

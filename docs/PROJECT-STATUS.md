@@ -195,12 +195,35 @@ lewat `git log`: commit postmortem Fase 5 (`3c34b0a`) memang terjadi
    yang sudah benar (counter per-pod diverifikasi monoton: 1636/124/63 di
    3 pod berbeda). Detail ditambahkan sebagai addendum di
    `postmortems/2026-09-15-pod-kill.md`.
-2. CPU-stress dan latency-injection **tidak** diulang penuh (sesuai
-   keputusan user: "minimal satu skenario" cukup sebagai sample check) —
-   tapi kedua postmortem sudah ditambah caveat eksplisit yang menandai
-   angka SLI persentase mereka sebagai "indikatif, belum terverifikasi
-   ulang", sementara angka HTTP langsungnya tetap dinyatakan valid.
+2. CPU-stress dan latency-injection awalnya diberi caveat "indikatif,
+   belum terverifikasi ulang" — **kemudian user minta diulang juga** karena
+   cluster masih hidup dan biayanya cuma beberapa menit.
 
-**Kesimpulan**: tidak ada angka yang disembunyikan atau diam-diam
-dibiarkan meragukan — yang aman dinyatakan aman dengan bukti ulang, yang
-berisiko diberi label jelas.
+**Update: kedua skenario tersisa diulang (2026-09-15, ~06:03-06:05 UTC)**
+
+| Skenario | Metrik | Pre-fix | Post-fix |
+|---|---|---|---|
+| CPU stress | HTTP sukses | 400/400 | 400/400 |
+| CPU stress | `slo:latency_bad:ratio_rate5m` | 0.66% | **1.71%** |
+| Latency injection | HTTP sukses | 200/200 | 200/200 |
+| Latency injection | request kena pod ber-delay | 2/200 (1%) | 3/200 (1.5%) |
+| Latency injection | `slo:latency_bad:ratio_rate5m` | 0.46% | **2.31%** |
+
+**Temuan penting**: kedua angka SLI Prometheus naik cukup signifikan
+pasca-fix (2.6x dan 5x). Kesimpulan kualitatif tiap postmortem (availability
+tidak terdampak, temuan load balancing tidak merata) tetap konsisten di
+kedua pengukuran. Tapi angka presisi SLI latency **berbeda nyata** — pola
+arah yang sama di dua eksperimen independen (sama-sama naik) mengindikasikan
+kemungkinan bug scrape secara sistematis **meremehkan** rasio "lambat"
+sebelum diperbaiki, bukan cuma noise acak. Kami tidak mengklaim kepastian
+penuh soal proporsi penyebab (bug vs variasi run-to-run lingkungan laptop),
+tapi konsistensi arah di 2 eksperimen mendukung dugaan itu.
+
+Sesuai instruksi user: **angka lama TIDAK ditimpa** — kedua angka (pre-fix
+& post-fix) dicatat berdampingan di masing-masing postmortem sebagai bukti
+nyata dampak bug, bukan cuma nomor yang diganti diam-diam.
+
+**Kesimpulan akhir**: tidak ada angka yang disembunyikan atau diam-diam
+dibiarkan meragukan — semua 3 skenario chaos sekarang punya angka SLI
+Prometheus yang terverifikasi ulang pasca-fix, dengan angka lama tetap
+terlihat sebagai pembanding.

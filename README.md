@@ -106,11 +106,18 @@ Root cause: Prometheus men-scrape lewat Service ClusterIP (`backend:8080`),
 yang di-load-balance kube-proxy ke pod BERBEDA-BEDA tiap scrape — tiap pod
 punya counter independen, jadi datanya loncat-loncat begitu replika backend
 > 1 (rutin terjadi via HPA sejak Fase 4). Diperbaiki dengan Kubernetes
-service discovery (scrape per-pod langsung by IP). Karena bug ini berarti
-recording rule SLO Fase 3 berpotensi tidak akurat selama ini, **skenario
-pod-kill di atas diverifikasi ulang setelah fix** — hasilnya konsisten.
-Detail lengkap & catatan angka mana di postmortem yang berpotensi
-terpengaruh: [docs/PROJECT-STATUS.md](docs/PROJECT-STATUS.md).
+service discovery (scrape per-pod langsung by IP).
+
+Karena bug ini berarti recording rule SLO Fase 3 berpotensi tidak akurat
+saat postmortem Fase 5 ditulis, **ketiga skenario chaos diverifikasi ulang
+pasca-fix** — hasilnya menarik: angka availability tetap konsisten (0% di
+kedua pengukuran), tapi angka SLI latency (`slo:latency_bad:ratio_rate5m`)
+naik signifikan pasca-fix di dua skenario (CPU stress: 0.66%→1.71%, latency
+injection: 0.46%→2.31%) — pola arah yang sama mengindikasikan bug ini
+kemungkinan secara sistematis **meremehkan** rasio "lambat", bukan cuma
+noise acak. Kesimpulan kualitatif tiap postmortem tetap valid; angka lama
+TIDAK ditimpa, dicatat berdampingan sebagai bukti nyata dampak bug. Detail
+lengkap & perbandingan angka: [docs/PROJECT-STATUS.md](docs/PROJECT-STATUS.md).
 
 ---
 
