@@ -42,6 +42,13 @@ ada di [`docs/PROJECT-STATUS.md`](docs/PROJECT-STATUS.md).
 
 - **Pod kill (3 replika)**: 150/150 request tetap sukses, pod pengganti siap
   dalam 8 detik, dampak customer-facing nol. ([postmortem](postmortems/2026-09-15-pod-kill.md))
+
+  | Sebelum | Sesudah (~15 detik setelah pod dihapus) |
+  |---|---|
+  | ![Dashboard sebelum pod-kill](docs/img/grafana-podkill-before.png) | ![Dashboard sesudah pod-kill](docs/img/grafana-podkill-after.png) |
+
+  Error Rate tetap flat 0% di kedua kondisi — bukti visual langsung dari klaim
+  "zero customer-facing impact" di atas, bukan cuma angka di postmortem.
 - **CPU stress (`stress-ng`, 2 core/60s)**: 400/400 request tetap sukses,
   latency p95 tetap di 135ms. ([postmortem](postmortems/2026-09-15-cpu-stress.md))
 - **Network latency injection**: menemukan bahwa load balancing Traefik+kube-proxy
@@ -55,6 +62,13 @@ ada di [`docs/PROJECT-STATUS.md`](docs/PROJECT-STATUS.md).
   selalu kosong (bukan 0) di sistem sehat, akibat perilaku PromQL `sum()` atas metrik
   yang belum pernah punya sampel — diperbaiki sebelum alert pernah dipakai untuk
   keputusan nyata.
+- **Bug kedua ditemukan saat dogfooding dashboard sendiri**: `Request Rate` sempat
+  menunjukkan angka absurd (15 req/s dari traffic ~2 req/s). Penyebabnya: Prometheus
+  men-scrape lewat Service ClusterIP, yang di-load-balance kube-proxy ke pod
+  BERBEDA-BEDA tiap scrape — tiap pod punya counter independen, jadi data-nya
+  loncat-loncat begitu replika backend > 1 (rutin terjadi via HPA). Diperbaiki
+  dengan Kubernetes service discovery (scrape per-pod langsung). Detail:
+  [docs/PROJECT-STATUS.md](docs/PROJECT-STATUS.md).
 
 ---
 
