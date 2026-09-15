@@ -1,0 +1,24 @@
+# HPA berbasis CPU untuk backend. Skala modest (max 3) — homelab/STB arm64,
+# bukan cluster produksi. Butuh metrics-server (bawaan k3s/k3d, sudah aktif
+# secara default).
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: backend
+  namespace: doko
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: backend
+  minReplicas: 1
+  maxReplicas: 3
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          # Dibandingkan ke resources.requests.cpu (50m) di 03-backend.yaml,
+          # bukan limit.
+          averageUtilization: 70
