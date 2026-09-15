@@ -38,37 +38,79 @@ berdampingan di folder terpisah.
 Detail lengkap tiap fase (keputusan, file yang berubah, angka regression test)
 ada di [`docs/PROJECT-STATUS.md`](docs/PROJECT-STATUS.md).
 
-## Highlight — apa yang dibuktikan, bukan diklaim
+## Cerita tiap fase — apa yang dibuktikan, termasuk yang sempat salah
 
-- **Pod kill (3 replika)**: 150/150 request tetap sukses, pod pengganti siap
-  dalam 8 detik, dampak customer-facing nol. ([postmortem](postmortems/2026-09-15-pod-kill.md))
+### Fase 3 — Define SLO: bug ditemukan sebelum sempat dipakai untuk keputusan nyata
 
-  | Sebelum | Sesudah (~15 detik setelah pod dihapus) |
-  |---|---|
-  | ![Dashboard sebelum pod-kill](docs/img/grafana-podkill-before.png) | ![Dashboard sesudah pod-kill](docs/img/grafana-podkill-after.png) |
+SLO availability 99% / p99 < 500ms diterjemahkan jadi recording rule +
+alerting multi-window multi-burn-rate (pola Google SRE Workbook). Saat
+verifikasi, recording rule availability ternyata **selalu kosong (bukan 0)**
+di sistem yang sehat — akibat perilaku PromQL `sum()` atas metrik yang belum
+pernah punya sampel 5xx menghasilkan *empty vector*, bukan `0`. Tanpa fix
+ini, rule-nya tidak akan pernah bisa dievaluasi benar di kondisi normal, dan
+alert jadi tidak berguna justru saat sedang sehat. Diperbaiki dengan
+`or vector(0)` sebelum alert ini pernah dipakai untuk keputusan nyata.
 
-  Error Rate tetap flat 0% di kedua kondisi — bukti visual langsung dari klaim
-  "zero customer-facing impact" di atas, bukan cuma angka di postmortem.
-- **CPU stress (`stress-ng`, 2 core/60s)**: 400/400 request tetap sukses,
-  latency p95 tetap di 135ms. ([postmortem](postmortems/2026-09-15-cpu-stress.md))
-- **Network latency injection**: menemukan bahwa load balancing Traefik+kube-proxy
-  di setup ini TIDAK round-robin murni per-request — cuma 1% traffic yang kena pod
-  bermasalah, bukan ~33% yang diasumsikan naif. Dicatat sebagai temuan, bukan
-  disembunyikan. ([postmortem](postmortems/2026-09-15-latency-injection.md))
-- **Root cause fix**: known issue "backend crash saat cluster baru dibuat" ternyata
-  bukan soal urutan startup, tapi *unhandled promise rejection* di kode — diperbaiki
-  dengan retry loop, diverifikasi lewat restart count 0 di percobaan berulang.
-- **Bug SLO ditemukan sebelum jadi masalah nyata**: recording rule availability awalnya
-  selalu kosong (bukan 0) di sistem sehat, akibat perilaku PromQL `sum()` atas metrik
-  yang belum pernah punya sampel — diperbaiki sebelum alert pernah dipakai untuk
-  keputusan nyata.
-- **Bug kedua ditemukan saat dogfooding dashboard sendiri**: `Request Rate` sempat
-  menunjukkan angka absurd (15 req/s dari traffic ~2 req/s). Penyebabnya: Prometheus
-  men-scrape lewat Service ClusterIP, yang di-load-balance kube-proxy ke pod
-  BERBEDA-BEDA tiap scrape — tiap pod punya counter independen, jadi data-nya
-  loncat-loncat begitu replika backend > 1 (rutin terjadi via HPA). Diperbaiki
-  dengan Kubernetes service discovery (scrape per-pod langsung). Detail:
-  [docs/PROJECT-STATUS.md](docs/PROJECT-STATUS.md).
+### Fase 4 — Harden: root cause fix, bukan patch di permukaan
+
+Known issue "backend crash saat cluster k3d baru dibuat" ternyata bukan soal
+urutan startup vs Postgres seperti dugaan awal — root cause-nya *unhandled
+promise rejection* di `initializeDatabase()` kalau `pool.connect()` gagal.
+Diperbaiki dengan retry loop tak terbatas (2 detik delay), diverifikasi lewat
+restart count turun dari 5-8x jadi **0** di percobaan berulang.
+
+**Future improvement** (belum dikerjakan, didokumentasikan saja): retry loop
+tak terbatas simpel dan terbukti menghilangkan CrashLoopBackOff, tapi kurang
+idiomatik untuk production — kalau Postgres down permanen, pod akan terlihat
+"sehat" (Running, tidak restart) padahal tidak pernah bisa melayani trafik,
+alih-alih gagal secara jelas. Dua alternatif yang lebih matang: (1)
+**initContainer** yang menunggu Postgres reachable sebelum container utama
+start (kegagalan terlihat jelas di status Pod, tapi startup jadi dua tahap);
+atau (2) retry dengan **exponential backoff + max attempts** (pod akhirnya
+`CrashLoopBackOff` kalau dependency benar-benar tidak pernah siap — trade-off
+antara "restart count 0 selamanya" vs "kegagalan permanen tetap terlihat
+sebagai gejala, bukan tersembunyi").
+
+### Fase 5 — Break: tiga skenario chaos, semua benar-benar dijalankan
+
+**Pod kill (3 replika)**: 150/150 request tetap sukses, pod pengganti siap
+dalam 8 detik, dampak customer-facing nol — diverifikasi ulang 2x setelah
+bug Fase 6 di bawah diperbaiki, hasilnya identik.
+([postmortem](postmortems/2026-09-15-pod-kill.md))
+
+| Sebelum | Sesudah (~15 detik setelah pod dihapus) |
+|---|---|
+| ![Dashboard sebelum pod-kill](docs/img/grafana-podkill-before.png) | ![Dashboard sesudah pod-kill](docs/img/grafana-podkill-after.png) |
+
+Error Rate tetap flat 0% di kedua kondisi — bukti visual langsung dari klaim
+"zero customer-facing impact" di atas, bukan cuma angka di postmortem.
+
+**CPU stress** (`stress-ng`, 2 core/60s): 400/400 request tetap sukses,
+latency p95 tetap di 135ms. ([postmortem](postmortems/2026-09-15-cpu-stress.md))
+
+**Network latency injection**: menemukan bahwa load balancing Traefik+kube-proxy
+di setup ini TIDAK round-robin murni per-request — cuma 1% traffic yang kena pod
+bermasalah, bukan ~33% yang diasumsikan naif. Dicatat sebagai temuan, bukan
+disembunyikan. ([postmortem](postmortems/2026-09-15-latency-injection.md))
+
+### Fase 6 — Automate: bug kedua, ditemukan bukan lewat automated test
+
+Saat menyiapkan dokumentasi (screenshot dashboard untuk README ini), angka
+`Request Rate` di Grafana kelihatan janggal — naik ke 15 req/s padahal
+traffic sebenarnya cuma ~2 req/s. **Ini ketahuan karena observasi manusia
+langsung menatap dashboard secara interaktif, bukan dari automated test atau
+query API sesaat** — semua verifikasi otomatis sebelumnya kebetulan tidak
+menangkap anomali ini dengan jelas.
+
+Root cause: Prometheus men-scrape lewat Service ClusterIP (`backend:8080`),
+yang di-load-balance kube-proxy ke pod BERBEDA-BEDA tiap scrape — tiap pod
+punya counter independen, jadi datanya loncat-loncat begitu replika backend
+> 1 (rutin terjadi via HPA sejak Fase 4). Diperbaiki dengan Kubernetes
+service discovery (scrape per-pod langsung by IP). Karena bug ini berarti
+recording rule SLO Fase 3 berpotensi tidak akurat selama ini, **skenario
+pod-kill di atas diverifikasi ulang setelah fix** — hasilnya konsisten.
+Detail lengkap & catatan angka mana di postmortem yang berpotensi
+terpengaruh: [docs/PROJECT-STATUS.md](docs/PROJECT-STATUS.md).
 
 ---
 

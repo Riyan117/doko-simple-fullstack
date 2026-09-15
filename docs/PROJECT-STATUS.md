@@ -146,10 +146,14 @@ melihat "satu metrik" yang sebenarnya data dari sumber berbeda-beda tiap scrape.
 **Dampak**: bukan cuma grafik dashboard yang salah — recording rules SLO Fase 3
 (`slo:availability_error:*`, `slo:latency_bad:*`) berpotensi ikut tidak akurat
 saat replika>1, bertentangan dengan prinsip proyek "Prometheus = sumber
-kebenaran SLO". Untungnya SEMUA verifikasi sebelumnya (Fase 2-5) kebetulan
-dilakukan saat kondisi cocok (replika=1, atau kebetulan tidak terdeteksi) —
-bug ini baru kelihatan sekarang karena user memakai UI Grafana interaktif
-dengan mata sendiri, bukan cuma query sesaat.
+kebenaran SLO". **Koreksi (setelah investigasi lebih lanjut)**: klaim awal di sini bahwa
+"semua verifikasi sebelumnya kebetulan replika=1" TERNYATA SALAH — Fase 5
+(chaos experiments) justru dijalankan dengan replika=3 (tertulis eksplisit
+di tiap postmortem). Artinya angka SLI Prometheus di postmortem Fase 5
+(`slo:latency_bad:ratio_rate5m` di cpu-stress & latency-injection)
+berpotensi terkena bug ini. Lihat bagian "Verifikasi ulang pasca-fix" di
+bawah untuk penanganannya. Bug ini baru kelihatan karena user memakai UI
+Grafana interaktif dengan mata sendiri, bukan cuma query API sesaat.
 
 **Fix**: scrape config diganti ke Kubernetes service discovery (`kubernetes_sd_configs`
 role `endpoints`, filter ke Service "backend" + endpoint ready) — Prometheus
@@ -166,3 +170,37 @@ req/s yang jelas keliru.
 
 File berubah: `observability/00-prometheus-configmap.yaml`,
 `observability/01-prometheus.yaml`, `observability/06-prometheus-rbac.yaml` (baru).
+
+### Verifikasi ulang pasca-fix scrape bug (diminta user sebelum PR)
+
+User bertanya spesifik: apakah angka SLI Prometheus di postmortem Fase 5
+terkontaminasi bug scrape-via-Service (karena diukur sebelum fix)? Dicek
+lewat `git log`: commit postmortem Fase 5 (`3c34b0a`) memang terjadi
+**sebelum** commit fix (`28a9c95`) — jadi risikonya nyata, bukan hipotetis.
+
+**Breakdown per angka:**
+- Angka dari observasi HTTP langsung (curl) — `150/150`, `400/400`,
+  `200/200`, MTTR 8 detik, "1% traffic kena pod ber-delay" — **tidak
+  terpengaruh** bug ini sama sekali (tidak lewat Prometheus).
+- Angka dari Prometheus (`slo:availability_error:ratio_rate5m` di
+  pod-kill, `slo:latency_bad:ratio_rate5m` 0.66% di cpu-stress dan 0.46%
+  di latency-injection) — **berpotensi terpengaruh**, terutama yang
+  persentase non-nol (cpu-stress, latency-injection) karena rate()
+  sensitif terhadap counter yang loncat antar pod.
+
+**Tindakan:**
+1. Skenario pod-kill diulang 2x setelah fix (05:19 & 05:32 UTC) — hasil
+   identik: 150/150 sukses, MTTR 8 detik (persis sama), dan
+   `slo:availability_error:ratio_rate5m` dikonfirmasi 0 dari Prometheus
+   yang sudah benar (counter per-pod diverifikasi monoton: 1636/124/63 di
+   3 pod berbeda). Detail ditambahkan sebagai addendum di
+   `postmortems/2026-09-15-pod-kill.md`.
+2. CPU-stress dan latency-injection **tidak** diulang penuh (sesuai
+   keputusan user: "minimal satu skenario" cukup sebagai sample check) —
+   tapi kedua postmortem sudah ditambah caveat eksplisit yang menandai
+   angka SLI persentase mereka sebagai "indikatif, belum terverifikasi
+   ulang", sementara angka HTTP langsungnya tetap dinyatakan valid.
+
+**Kesimpulan**: tidak ada angka yang disembunyikan atau diam-diam
+dibiarkan meragukan — yang aman dinyatakan aman dengan bukti ulang, yang
+berisiko diberi label jelas.

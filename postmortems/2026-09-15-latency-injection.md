@@ -88,3 +88,17 @@ selalu diarahkan ke pod yang bermasalah). Ini bukan kesimpulan
 |---|---|
 | Investigasi algoritma load balancing Traefik (kalau presisi distribusi traffic jadi kebutuhan) | Belum dikerjakan |
 | Uji skenario delay di SEMUA pod sekaligus (mendekati kondisi jaringan homelab bermasalah) | Belum dikerjakan |
+
+## ⚠️ Caveat (ditambahkan setelah Fase 6)
+
+Sama seperti `postmortems/2026-09-15-cpu-stress.md`: eksperimen ini
+dijalankan **sebelum** fix bug "Prometheus scrape-via-Service" (lihat
+`docs/PROJECT-STATUS.md` Fase 6). Angka **`200/200` request sukses** dari
+observasi HTTP langsung tetap valid. Tapi **`slo:latency_bad:ratio_rate5m`
+= 0.46%** dan temuan **"cuma 2/200 (1%) request kena pod ber-delay"** —
+yang terakhir ini dihitung dari observasi HTTP langsung juga (bukan
+Prometheus), jadi **tetap valid**. Yang berpotensi meleset cuma angka
+0.46% SLI dari Prometheus. Belum diulang setelah fix. Temuan utama
+eksperimen ini (distribusi load balancing tidak merata) TIDAK terpengaruh
+caveat ini karena diukur independen dari Prometheus.
+| Uji skenario delay di SEMUA pod sekaligus (mendekati kondisi jaringan homelab bermasalah) | Belum dikerjakan |

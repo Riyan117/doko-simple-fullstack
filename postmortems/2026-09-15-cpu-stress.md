@@ -75,3 +75,18 @@ Simulasi murni: `stress-ng` sengaja membebani CPU node.
 |---|---|
 | Uji stress CPU lebih agresif (misal 4 core / durasi lebih lama) untuk coba trigger alert Fase 3 | Belum dikerjakan |
 | Pertimbangkan `ResourceQuota` per-namespace untuk isolasi chaos job dari workload utama | Belum dikerjakan |
+
+## ⚠️ Caveat (ditambahkan setelah Fase 6)
+
+Eksperimen ini dijalankan **sebelum** bug "Prometheus scrape-via-Service"
+ditemukan & diperbaiki (lihat `docs/PROJECT-STATUS.md` Fase 6, dan addendum
+di `postmortems/2026-09-15-pod-kill.md`). Angka **`400/400` request sukses**
+berasal dari observasi HTTP langsung (curl) — **tidak terpengaruh** bug ini,
+tetap valid. Tapi **angka `slo:latency_bad:ratio_rate5m` = 0.66%** diukur
+dari Prometheus SEBELUM fix, saat replika = 3 — berpotensi sedikit
+meleset (counter bisa "loncat" antar pod saat scrape lewat Service). Belum
+diulang setelah fix (hanya skenario pod-kill yang diverifikasi ulang, sesuai
+keputusan agar tidak menghabiskan waktu untuk re-run semua eksperimen).
+**Perlakukan angka 0.66% ini sebagai indikatif, bukan presisi** — kesimpulan
+kualitatif ("dampak kecil, di bawah budget") kemungkinan besar tetap benar,
+tapi angka pastinya belum terverifikasi ulang.
