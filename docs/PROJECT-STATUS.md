@@ -126,4 +126,7 @@ Update terakhir: 2026-09-15
 - Branch: `feature/k3s-reliability-showcase` (belum di-push, menunggu instruksi)
 - Cluster k3d `doko` sedang aktif dengan Fase 1+2 ter-deploy (untuk verifikasi manual
   kalau mau dicek langsung)
-- **Fase 5 selesai. Lanjut Fase 6 (README naratif, opsional ArgoCD/Sealed Secrets — GERBANG).**
+- **Fase 6 sebagian selesai**: README naratif sudah ditulis ulang & di-commit.
+  Belum: screenshot dashboard (butuh browser, tidak tersedia di sesi ini),
+  description+topics repo GitHub (butuh `gh` CLI yang belum terpasang + branch
+  belum di-push), ArgoCD/Sealed Secrets (opsional, GERBANG — menunggu keputusan).
