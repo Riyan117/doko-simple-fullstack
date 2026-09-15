@@ -1,0 +1,19 @@
+# Scrape config statis (bukan Prometheus Operator/ServiceMonitor — sengaja
+# dihindari biar ringan buat target akhir STB arm64). Target "backend:8080"
+# pakai nama Service dari k8s/03-backend.yaml, resolve via DNS internal
+# cluster karena satu namespace ("doko").
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: prometheus-config
+  namespace: doko
+data:
+  prometheus.yml: |
+    global:
+      scrape_interval: 15s
+      evaluation_interval: 15s
+
+    scrape_configs:
+      - job_name: 'backend'
+        static_configs:
+          - targets: ['backend:8080']

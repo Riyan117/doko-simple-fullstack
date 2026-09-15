@@ -1,0 +1,48 @@
+# Prometheus polos (bukan Operator) — cukup untuk showcase reliability skala
+# homelab. Tanpa PVC: data TSDB hilang kalau pod restart (batasan yang
+# disengaja untuk menjaga kesederhanaan; Fase 3 recording/alerting rule tetap
+# jalan normal karena rule dievaluasi terus-menerus selama Prometheus hidup).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: prometheus
+  namespace: doko
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: prometheus
+  template:
+    metadata:
+      labels:
+        app: prometheus
+    spec:
+      containers:
+        - name: prometheus
+          image: prom/prometheus:v2.55.1
+          args:
+            - --config.file=/etc/prometheus/prometheus.yml
+          ports:
+            - containerPort: 9090
+          volumeMounts:
+            - name: config
+              mountPath: /etc/prometheus/prometheus.yml
+              subPath: prometheus.yml
+      volumes:
+        - name: config
+          configMap:
+            name: prometheus-config
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: prometheus
+  namespace: doko
+spec:
+  # ClusterIP saja — Prometheus hanya diakses dari dalam cluster (Grafana),
+  # sama seperti Postgres tidak diekspos keluar.
+  selector:
+    app: prometheus
+  ports:
+    - port: 9090
+      targetPort: 9090
