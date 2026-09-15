@@ -1,0 +1,69 @@
+# ConfigMap ini adalah versi k8s dari frontend/nginx.conf. File aslinya di
+# frontend/nginx.conf TIDAK diubah (dipakai apa adanya oleh docker-compose).
+# Bedanya cuma satu baris: proxy_pass mengarah ke Service "backend"
+# (bukan container_name "doko_backend" yang hanya valid di docker-compose,
+# dan underscore memang tidak valid sebagai nama Service k8s).
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: frontend-nginx-config
+  namespace: doko
+data:
+  nginx.conf: |
+    server {
+      listen 80;
+
+      location / {
+        root   /usr/share/nginx/html;
+        index  index.html index.htm;
+        try_files $uri $uri/ /index.html;
+      }
+
+      location /api/ {
+        proxy_pass http://backend:8080;
+      }
+    }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: frontend
+  namespace: doko
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: frontend
+  template:
+    metadata:
+      labels:
+        app: frontend
+    spec:
+      containers:
+        - name: frontend
+          image: doko-frontend:local
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 80
+          volumeMounts:
+            # subPath "nginx.conf" -> hanya file ini yang ditimpa di dalam
+            # image, jadi tidak menghapus konten /etc/nginx/conf.d/ lainnya.
+            - name: nginx-conf
+              mountPath: /etc/nginx/conf.d/nginx.conf
+              subPath: nginx.conf
+      volumes:
+        - name: nginx-conf
+          configMap:
+            name: frontend-nginx-config
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: frontend
+  namespace: doko
+spec:
+  selector:
+    app: frontend
+  ports:
+    - port: 80
+      targetPort: 80

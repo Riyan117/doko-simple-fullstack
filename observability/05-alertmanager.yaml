@@ -1,0 +1,66 @@
+# Route Alertmanager mulai dari receiver "dummy"/placeholder (bukan webhook
+# eksternal) — sengaja paling ringan: tidak ada integrasi nyata (Slack/email/
+# PagerDuty) dulu, tapi alert tetap kelihatan & bisa diuji langsung lewat
+# Alertmanager UI (port-forward svc/alertmanager 9093). Ganti "receivers" di
+# bawah kalau nanti mau notifikasi asli.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: alertmanager-config
+  namespace: doko
+data:
+  alertmanager.yml: |
+    route:
+      receiver: default
+      group_by: ['alertname', 'slo']
+      group_wait: 30s
+      group_interval: 5m
+      repeat_interval: 4h
+
+    receivers:
+      - name: default
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: alertmanager
+  namespace: doko
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: alertmanager
+  template:
+    metadata:
+      labels:
+        app: alertmanager
+    spec:
+      containers:
+        - name: alertmanager
+          image: prom/alertmanager:v0.28.0
+          args:
+            - --config.file=/etc/alertmanager/alertmanager.yml
+          ports:
+            - containerPort: 9093
+          volumeMounts:
+            - name: config
+              mountPath: /etc/alertmanager/alertmanager.yml
+              subPath: alertmanager.yml
+      volumes:
+        - name: config
+          configMap:
+            name: alertmanager-config
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: alertmanager
+  namespace: doko
+spec:
+  # ClusterIP saja — sama seperti Prometheus/Postgres, tidak diekspos keluar.
+  # Akses buat cek manual pakai: kubectl port-forward -n doko svc/alertmanager 9093:9093
+  selector:
+    app: alertmanager
+  ports:
+    - port: 9093
+      targetPort: 9093

@@ -1,0 +1,78 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: grafana
+  namespace: doko
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: grafana
+  template:
+    metadata:
+      labels:
+        app: grafana
+    spec:
+      containers:
+        - name: grafana
+          image: grafana/grafana:11.3.1
+          ports:
+            - containerPort: 3000
+          env:
+            # Kredensial default sama seperti Grafana docker-compose — disposable,
+            # khusus latihan lokal (catatan sama seperti k8s/01-secret-postgres.yaml).
+            - name: GF_SECURITY_ADMIN_USER
+              value: admin
+            - name: GF_SECURITY_ADMIN_PASSWORD
+              value: admin
+          volumeMounts:
+            - name: datasources
+              mountPath: /etc/grafana/provisioning/datasources
+            - name: dashboard-provider
+              mountPath: /etc/grafana/provisioning/dashboards
+            - name: dashboard-app
+              mountPath: /var/lib/grafana/dashboards
+      volumes:
+        - name: datasources
+          configMap:
+            name: grafana-datasources
+        - name: dashboard-provider
+          configMap:
+            name: grafana-dashboard-provider
+        - name: dashboard-app
+          configMap:
+            name: grafana-dashboard-app
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: grafana
+  namespace: doko
+spec:
+  selector:
+    app: grafana
+  ports:
+    - port: 3000
+      targetPort: 3000
+---
+# Ingress terpisah dari k8s/05-ingress.yaml (frontend) — host beda supaya
+# tidak perlu path-rewrite. Tambahkan "127.0.0.1 grafana.doko.local" di
+# /etc/hosts, sama seperti doko.local.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: grafana
+  namespace: doko
+spec:
+  ingressClassName: traefik
+  rules:
+    - host: grafana.doko.local
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: grafana
+                port:
+                  number: 3000
