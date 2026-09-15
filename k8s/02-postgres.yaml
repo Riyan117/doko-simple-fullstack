@@ -30,6 +30,10 @@ spec:
       labels:
         app: db
     spec:
+      # Postgres tidak pernah panggil Kubernetes API, jadi token
+      # ServiceAccount default tidak perlu di-mount (mengecilkan permukaan
+      # serangan kalau container ini pernah di-exploit).
+      automountServiceAccountToken: false
       containers:
         - name: postgres
           image: postgres:13-alpine
@@ -38,6 +42,15 @@ spec:
           envFrom:
             - secretRef:
                 name: postgres-credentials
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+              ephemeral-storage: 64Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+              ephemeral-storage: 256Mi
           volumeMounts:
             # subPath "pgdata" supaya direktori data tidak langsung di root
             # volume (menghindari isu lost+found bawaan beberapa storage class).

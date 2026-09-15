@@ -13,6 +13,8 @@ spec:
   template:
     spec:
       restartPolicy: Never
+      # Job stress ini tidak pernah panggil Kubernetes API.
+      automountServiceAccountToken: false
       containers:
         - name: stress
           image: alpine:3.20
@@ -23,5 +25,7 @@ spec:
           resources:
             requests:
               cpu: 200m
+              memory: 64Mi
             limits:
               cpu: "1"
+              memory: 256Mi

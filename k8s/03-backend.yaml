@@ -13,6 +13,9 @@ spec:
       labels:
         app: backend
     spec:
+      # Backend tidak pernah panggil Kubernetes API — token ServiceAccount
+      # default tidak perlu di-mount.
+      automountServiceAccountToken: false
       containers:
         - name: backend
           # Image dibangun lokal lalu di-import ke k3d (lihat k8s/README.md).
