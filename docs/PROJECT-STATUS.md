@@ -39,6 +39,23 @@ Update terakhir: 2026-09-15
   pembanding regresi). Grafana docker-compose (InfluxDB/k6) tetap dipertahankan terpisah,
   tidak diubah.
 
+### Fase 3 — SLI/SLO, alerting, Alertmanager ✅
+- **SLO disetujui (2026-09-15): availability 99%, latency p99 < 500ms.**
+- `observability/04-prometheus-rules.yaml`: recording rules rasio error &
+  "lambat" per window (5m→3d), alerting multi-window multi-burn-rate (pola
+  Google SRE Workbook): fast(5m/1h,14.4x)/medium(30m/6h,6x)=page,
+  slow(2h/1d,3x)/very-slow(6h/3d,1x)=ticket. 8 alert total (availability+latency).
+- `observability/05-alertmanager.yaml`: route dengan receiver dummy/placeholder
+  (belum ada integrasi Slack/email — sengaja, sesuai default proyek).
+- **Bug ditemukan & diperbaiki saat verifikasi**: recording rule availability
+  awalnya selalu kosong (bukan 0) di sistem sehat karena PromQL
+  `sum(rate(...{status_code=~"5.."}))` menghasilkan empty vector kalau belum
+  pernah ada 5xx — diperbaiki dengan `or vector(0)`. Tanpa fix ini, alert TIDAK
+  AKAN PERNAH bisa dievaluasi dengan benar di kondisi normal.
+- Diverifikasi end-to-end: 22 rule ter-load tanpa error, Prometheus↔Alertmanager
+  connected, recording rule menghasilkan angka valid (0, bukan NaN/kosong)
+  setelah traffic nyata.
+
 ## Keputusan arsitektur yang berlaku sepanjang proyek
 - Sumber angka SLO otoritatif = Prometheus di dalam cluster, BUKAN k6 di laptop (k6 cuma
   data poin, bukan kebenaran, karena resource laptop tidak representatif).
@@ -60,4 +77,4 @@ Update terakhir: 2026-09-15
 - Branch: `feature/k3s-reliability-showcase` (belum di-push, menunggu instruksi)
 - Cluster k3d `doko` sedang aktif dengan Fase 1+2 ter-deploy (untuk verifikasi manual
   kalau mau dicek langsung)
-- **Fase 3 (SLI/SLO) dimulai, berhenti di GERBANG angka SLO — menunggu persetujuan.**
+- **Fase 3 selesai. Lanjut Fase 4 (probe, resource limit, HPA).**

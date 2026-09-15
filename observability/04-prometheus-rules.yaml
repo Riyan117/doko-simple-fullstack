@@ -1,0 +1,142 @@
+# SLO: availability 99% (error budget 1%), latency p99 < 500ms — disetujui
+# 2026-09-15. Alerting pakai pola multi-window multi-burn-rate dari Google SRE
+# Workbook: tiap alert membandingkan burn rate di window PENDEK (respons cepat,
+# reset cepat begitu insiden selesai) DAN window PANJANG (menghindari alert
+# akibat lonjakan sesaat) sekaligus — keduanya harus sama-sama melewati
+# threshold baru alert menyala.
+#
+# error_budget = 1 - SLO = 0.01 (untuk kedua SLO, availability & latency)
+# burn_rate = error_ratio_terobservasi / error_budget
+#
+# 4 tingkat (window pendek/panjang, threshold burn rate, berapa % budget
+# bulanan terpakai kalau burn rate itu bertahan sepanjang window panjang):
+#   1. 5m  / 1h   burn>14.4   -> ~2%  budget/jam   -> Page (insiden nyata, cepat)
+#   2. 30m / 6h   burn>6      -> ~5%  budget/6jam  -> Page (lebih lambat tapi signifikan)
+#   3. 2h  / 1d   burn>3      -> ~10% budget/hari  -> Ticket (perlu perhatian, tidak darurat)
+#   4. 6h  / 3d   burn>1      -> ~10% budget/3hari -> Ticket (tren perlahan)
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: prometheus-rules
+  namespace: doko
+data:
+  slo-rules.yml: |
+    groups:
+      # --- Recording rules: rasio error & rasio "lambat" per window ---
+      - name: slo-recording-availability
+        interval: 30s
+        rules:
+          - record: slo:availability_error:ratio_rate5m
+            expr: (sum(rate(http_requests_total{status_code=~"5.."}[5m])) or vector(0)) / sum(rate(http_requests_total[5m]))
+          - record: slo:availability_error:ratio_rate30m
+            expr: (sum(rate(http_requests_total{status_code=~"5.."}[30m])) or vector(0)) / sum(rate(http_requests_total[30m]))
+          - record: slo:availability_error:ratio_rate1h
+            expr: (sum(rate(http_requests_total{status_code=~"5.."}[1h])) or vector(0)) / sum(rate(http_requests_total[1h]))
+          - record: slo:availability_error:ratio_rate2h
+            expr: (sum(rate(http_requests_total{status_code=~"5.."}[2h])) or vector(0)) / sum(rate(http_requests_total[2h]))
+          - record: slo:availability_error:ratio_rate6h
+            expr: (sum(rate(http_requests_total{status_code=~"5.."}[6h])) or vector(0)) / sum(rate(http_requests_total[6h]))
+          - record: slo:availability_error:ratio_rate1d
+            expr: (sum(rate(http_requests_total{status_code=~"5.."}[1d])) or vector(0)) / sum(rate(http_requests_total[1d]))
+          - record: slo:availability_error:ratio_rate3d
+            expr: (sum(rate(http_requests_total{status_code=~"5.."}[3d])) or vector(0)) / sum(rate(http_requests_total[3d]))
+
+      # SLI latency: pakai bucket le="0.5" (500ms) dari http_request_duration_seconds
+      # sebagai proxy "request cukup cepat" — target p99<500ms secara praktis berarti
+      # >=99% request harus masuk bucket ini. "bad" = 1 - rasio itu.
+      - name: slo-recording-latency
+        interval: 30s
+        rules:
+          - record: slo:latency_bad:ratio_rate5m
+            expr: 1 - (sum(rate(http_request_duration_seconds_bucket{le="0.5"}[5m])) / sum(rate(http_request_duration_seconds_count[5m])))
+          - record: slo:latency_bad:ratio_rate30m
+            expr: 1 - (sum(rate(http_request_duration_seconds_bucket{le="0.5"}[30m])) / sum(rate(http_request_duration_seconds_count[30m])))
+          - record: slo:latency_bad:ratio_rate1h
+            expr: 1 - (sum(rate(http_request_duration_seconds_bucket{le="0.5"}[1h])) / sum(rate(http_request_duration_seconds_count[1h])))
+          - record: slo:latency_bad:ratio_rate2h
+            expr: 1 - (sum(rate(http_request_duration_seconds_bucket{le="0.5"}[2h])) / sum(rate(http_request_duration_seconds_count[2h])))
+          - record: slo:latency_bad:ratio_rate6h
+            expr: 1 - (sum(rate(http_request_duration_seconds_bucket{le="0.5"}[6h])) / sum(rate(http_request_duration_seconds_count[6h])))
+          - record: slo:latency_bad:ratio_rate1d
+            expr: 1 - (sum(rate(http_request_duration_seconds_bucket{le="0.5"}[1d])) / sum(rate(http_request_duration_seconds_count[1d])))
+          - record: slo:latency_bad:ratio_rate3d
+            expr: 1 - (sum(rate(http_request_duration_seconds_bucket{le="0.5"}[3d])) / sum(rate(http_request_duration_seconds_count[3d])))
+
+      # --- Alerting rules: multi-window multi-burn-rate ---
+      - name: slo-alerts-availability
+        rules:
+          - alert: AvailabilityErrorBudgetBurnFast
+            expr: slo:availability_error:ratio_rate1h > (14.4 * 0.01) and slo:availability_error:ratio_rate5m > (14.4 * 0.01)
+            for: 2m
+            labels:
+              severity: page
+              slo: availability
+            annotations:
+              summary: "Availability burn rate tinggi (fast, 1h & 5m)"
+              description: "Error rate melebihi 14.4x error budget di window 1h DAN 5m — kalau berlanjut, budget bulanan habis dalam <2 hari."
+          - alert: AvailabilityErrorBudgetBurnMedium
+            expr: slo:availability_error:ratio_rate6h > (6 * 0.01) and slo:availability_error:ratio_rate30m > (6 * 0.01)
+            for: 15m
+            labels:
+              severity: page
+              slo: availability
+            annotations:
+              summary: "Availability burn rate tinggi (medium, 6h & 30m)"
+              description: "Error rate melebihi 6x error budget di window 6h DAN 30m."
+          - alert: AvailabilityErrorBudgetBurnSlow
+            expr: slo:availability_error:ratio_rate1d > (3 * 0.01) and slo:availability_error:ratio_rate2h > (3 * 0.01)
+            for: 1h
+            labels:
+              severity: ticket
+              slo: availability
+            annotations:
+              summary: "Availability burn rate meningkat (slow, 1d & 2h)"
+              description: "Error rate melebihi 3x error budget di window 1d DAN 2h — perlu ditinjau, belum darurat."
+          - alert: AvailabilityErrorBudgetBurnVerySlow
+            expr: slo:availability_error:ratio_rate3d > (1 * 0.01) and slo:availability_error:ratio_rate6h > (1 * 0.01)
+            for: 3h
+            labels:
+              severity: ticket
+              slo: availability
+            annotations:
+              summary: "Availability burn rate meningkat perlahan (very slow, 3d & 6h)"
+              description: "Error rate melebihi 1x error budget di window 3d DAN 6h — tren perlahan, cukup dipantau."
+
+      - name: slo-alerts-latency
+        rules:
+          - alert: LatencyErrorBudgetBurnFast
+            expr: slo:latency_bad:ratio_rate1h > (14.4 * 0.01) and slo:latency_bad:ratio_rate5m > (14.4 * 0.01)
+            for: 2m
+            labels:
+              severity: page
+              slo: latency
+            annotations:
+              summary: "Latency p99 <500ms burn rate tinggi (fast, 1h & 5m)"
+              description: "Proporsi request >500ms melebihi 14.4x error budget di window 1h DAN 5m."
+          - alert: LatencyErrorBudgetBurnMedium
+            expr: slo:latency_bad:ratio_rate6h > (6 * 0.01) and slo:latency_bad:ratio_rate30m > (6 * 0.01)
+            for: 15m
+            labels:
+              severity: page
+              slo: latency
+            annotations:
+              summary: "Latency p99 <500ms burn rate tinggi (medium, 6h & 30m)"
+              description: "Proporsi request >500ms melebihi 6x error budget di window 6h DAN 30m."
+          - alert: LatencyErrorBudgetBurnSlow
+            expr: slo:latency_bad:ratio_rate1d > (3 * 0.01) and slo:latency_bad:ratio_rate2h > (3 * 0.01)
+            for: 1h
+            labels:
+              severity: ticket
+              slo: latency
+            annotations:
+              summary: "Latency p99 <500ms burn rate meningkat (slow, 1d & 2h)"
+              description: "Proporsi request >500ms melebihi 3x error budget di window 1d DAN 2h."
+          - alert: LatencyErrorBudgetBurnVerySlow
+            expr: slo:latency_bad:ratio_rate3d > (1 * 0.01) and slo:latency_bad:ratio_rate6h > (1 * 0.01)
+            for: 3h
+            labels:
+              severity: ticket
+              slo: latency
+            annotations:
+              summary: "Latency p99 <500ms burn rate meningkat perlahan (very slow, 3d & 6h)"
+              description: "Proporsi request >500ms melebihi 1x error budget di window 3d DAN 6h."
