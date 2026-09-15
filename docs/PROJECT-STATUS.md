@@ -126,7 +126,43 @@ Update terakhir: 2026-09-15
 - Branch: `feature/k3s-reliability-showcase` (belum di-push, menunggu instruksi)
 - Cluster k3d `doko` sedang aktif dengan Fase 1+2 ter-deploy (untuk verifikasi manual
   kalau mau dicek langsung)
-- **Fase 6 sebagian selesai**: README naratif sudah ditulis ulang & di-commit.
-  Belum: screenshot dashboard (butuh browser, tidak tersedia di sesi ini),
-  description+topics repo GitHub (butuh `gh` CLI yang belum terpasang + branch
-  belum di-push), ArgoCD/Sealed Secrets (opsional, GERBANG — menunggu keputusan).
+- **Fase 6 progress**: README naratif ✅, branch di-push ✅, description+topics
+  repo GitHub ✅. Screenshot dashboard: dilewati sesuai keputusan user (tidak
+  krusial). ArgoCD/Sealed Secrets: ditunda sesuai keputusan user (opsional).
+
+### Bug ditemukan setelah Fase 6 (saat verifikasi manual bareng user) — FIXED
+Saat user ambil screenshot dashboard untuk dokumentasi, panel "Request Rate"
+menunjukkan angka naik tidak wajar (sampai 15 req/s padahal traffic generator
+cuma ~2 req/s). Investigasi: `http_requests_total` loncat naik-turun tidak
+monoton (492→90→107→580→124...) — mustahil untuk counter Prometheus yang benar.
+
+**Root cause**: scrape config Prometheus (`observability/00-prometheus-configmap.yaml`)
+sebelumnya target `backend:8080` (Service ClusterIP) via `static_configs`. Tiap
+scrape (15s) di-load-balance kube-proxy ke SALAH SATU dari N pod backend secara
+acak. Tiap pod punya counter proses independen (mulai dari 0 sejak pod start) —
+begitu replika backend > 1 (rutin terjadi via HPA sejak Fase 4), Prometheus
+melihat "satu metrik" yang sebenarnya data dari sumber berbeda-beda tiap scrape.
+
+**Dampak**: bukan cuma grafik dashboard yang salah — recording rules SLO Fase 3
+(`slo:availability_error:*`, `slo:latency_bad:*`) berpotensi ikut tidak akurat
+saat replika>1, bertentangan dengan prinsip proyek "Prometheus = sumber
+kebenaran SLO". Untungnya SEMUA verifikasi sebelumnya (Fase 2-5) kebetulan
+dilakukan saat kondisi cocok (replika=1, atau kebetulan tidak terdeteksi) —
+bug ini baru kelihatan sekarang karena user memakai UI Grafana interaktif
+dengan mata sendiri, bukan cuma query sesaat.
+
+**Fix**: scrape config diganti ke Kubernetes service discovery (`kubernetes_sd_configs`
+role `endpoints`, filter ke Service "backend" + endpoint ready) — Prometheus
+sekarang scrape SETIAP pod langsung by IP, masing-masing jadi time series
+independen yang konsisten monoton. Ditambah RBAC minimal (`ServiceAccount`+`Role`
+scoped namespace `doko`, verbs get/list/watch untuk endpoints/services/pods) —
+file baru `observability/06-prometheus-rbac.yaml`.
+
+**Verifikasi**: 3 pod muncul sebagai target terpisah (bukan 1 lewat Service),
+semua `health: up`, counter per-pod diamati 4x berturut-turut (interval 15s)
+— semua naik monoton tanpa loncatan. `sum(rate(...))` agregat sekarang 0.665
+req/s (masuk akal vs traffic generator ~2 req/s), sebelumnya bisa sampai 15+
+req/s yang jelas keliru.
+
+File berubah: `observability/00-prometheus-configmap.yaml`,
+`observability/01-prometheus.yaml`, `observability/06-prometheus-rbac.yaml` (baru).
