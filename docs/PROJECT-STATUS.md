@@ -84,6 +84,27 @@ Update terakhir: 2026-09-15
   ditinjau kalau relevan di fase berikutnya, tidak diburu sekarang karena di
   luar scope eksplisit Fase 4.
 
+### Fase 5 — Chaos engineering + postmortem ✅
+- `/chaos`: 3 skenario (`01-pod-kill.sh`, `02-cpu-stress.sh`+Job,
+  `03-latency-injection.sh` pakai `tc netem` via ephemeral debug container —
+  TANPA Chaos Mesh, sesuai keputusan). Semua benar-benar DIJALANKAN di k3d
+  (bukan cuma ditulis), dengan traffic monitoring nyata selama eksperimen.
+- `/postmortems`: `TEMPLATE.md` + 3 postmortem terisi data nyata:
+  1. **Pod kill** (3 replika saat itu): 150/150 request tetap 200, pod
+     pengganti Ready dalam **8 detik**, dampak customer-facing **nol**.
+  2. **CPU stress** (`stress-ng`, 2 core, 60s): 400/400 request tetap 200,
+     latency naik tipis (p95 135ms), SLI latency 0.66% (di bawah budget 1%).
+  3. **Latency injection** (`tc netem` 300ms di 1 dari 3 pod): 200/200 tetap
+     200, tapi **temuan tak terduga**: cuma 2/200 (1%) request yang kena
+     pod ber-delay, jauh di bawah ekspektasi naif ~33% — mengindikasikan
+     load balancing Traefik/kube-proxy tidak round-robin murni per-request.
+     Dicatat sebagai temuan untuk investigasi lanjut, bukan diasumsikan aman.
+- Semua 3 skenario: **0% dampak ke error budget availability**, konsisten
+  divalidasi lewat query Prometheus (`slo:*` recording rules Fase 3) — bukan
+  cuma observasi manual.
+- Tidak ada perubahan `server.js`/kode app di fase ini → regression gate
+  tidak berlaku (tidak ada yang perlu diuji ulang).
+
 ## Keputusan arsitektur yang berlaku sepanjang proyek
 - Sumber angka SLO otoritatif = Prometheus di dalam cluster, BUKAN k6 di laptop (k6 cuma
   data poin, bukan kebenaran, karena resource laptop tidak representatif).
@@ -105,4 +126,4 @@ Update terakhir: 2026-09-15
 - Branch: `feature/k3s-reliability-showcase` (belum di-push, menunggu instruksi)
 - Cluster k3d `doko` sedang aktif dengan Fase 1+2 ter-deploy (untuk verifikasi manual
   kalau mau dicek langsung)
-- **Fase 4 selesai. Lanjut Fase 5 (chaos + postmortem).**
+- **Fase 5 selesai. Lanjut Fase 6 (README naratif, opsional ArgoCD/Sealed Secrets — GERBANG).**

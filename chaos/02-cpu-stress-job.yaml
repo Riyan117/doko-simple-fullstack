@@ -1,0 +1,27 @@
+# Chaos: CPU stress "noisy neighbor" di node yang sama dengan backend, untuk
+# amati reaksi HPA (k8s/06-backend-hpa.yaml) dan dampak ke latency.
+# Pakai alpine + apk install stress-ng saat runtime (bukan image stress-ng
+# tersendiri) supaya tidak bergantung pada image pihak ketiga yang belum
+# tentu ada varian arm64-nya — alpine apk repo mencakup aarch64.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: chaos-cpu-stress
+  namespace: doko
+spec:
+  ttlSecondsAfterFinished: 300
+  template:
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: stress
+          image: alpine:3.20
+          command:
+            - sh
+            - -c
+            - "apk add --no-cache stress-ng && stress-ng --cpu 2 --timeout 60s --metrics-brief"
+          resources:
+            requests:
+              cpu: 200m
+            limits:
+              cpu: "1"
