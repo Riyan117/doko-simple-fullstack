@@ -76,17 +76,34 @@ Simulasi murni: `stress-ng` sengaja membebani CPU node.
 | Uji stress CPU lebih agresif (misal 4 core / durasi lebih lama) untuk coba trigger alert Fase 3 | Belum dikerjakan |
 | Pertimbangkan `ResourceQuota` per-namespace untuk isolasi chaos job dari workload utama | Belum dikerjakan |
 
-## ⚠️ Caveat (ditambahkan setelah Fase 6)
+## Addendum (2026-09-15, setelah Fase 6): verifikasi ulang pasca-fix scrape bug
 
-Eksperimen ini dijalankan **sebelum** bug "Prometheus scrape-via-Service"
-ditemukan & diperbaiki (lihat `docs/PROJECT-STATUS.md` Fase 6, dan addendum
-di `postmortems/2026-09-15-pod-kill.md`). Angka **`400/400` request sukses**
-berasal dari observasi HTTP langsung (curl) — **tidak terpengaruh** bug ini,
-tetap valid. Tapi **angka `slo:latency_bad:ratio_rate5m` = 0.66%** diukur
-dari Prometheus SEBELUM fix, saat replika = 3 — berpotensi sedikit
-meleset (counter bisa "loncat" antar pod saat scrape lewat Service). Belum
-diulang setelah fix (hanya skenario pod-kill yang diverifikasi ulang, sesuai
-keputusan agar tidak menghabiskan waktu untuk re-run semua eksperimen).
-**Perlakukan angka 0.66% ini sebagai indikatif, bukan presisi** — kesimpulan
-kualitatif ("dampak kecil, di bawah budget") kemungkinan besar tetap benar,
-tapi angka pastinya belum terverifikasi ulang.
+Eksperimen ini awalnya dijalankan **sebelum** bug "Prometheus scrape-via-Service"
+ditemukan & diperbaiki (lihat `docs/PROJECT-STATUS.md` Fase 6). Angka
+**`400/400` request sukses** dari observasi HTTP langsung (curl) tidak
+terpengaruh bug ini. Tapi `slo:latency_bad:ratio_rate5m` DIUKUR DARI
+PROMETHEUS SEBELUM FIX, saat replika = 3 — berpotensi meleset karena
+counter bisa "loncat" antar pod saat scrape lewat Service.
+
+**Diulang setelah fix** (06:03 UTC, job `stress-ng --cpu 2 --timeout 60s`
+identik, 400 request monitoring identik):
+
+| Metrik | Sebelum fix (pre-scrape-fix) | Sesudah fix (post-scrape-fix) |
+|---|---|---|
+| HTTP request sukses | 400/400 | 400/400 |
+| `slo:latency_bad:ratio_rate5m` | 0.66% | **1.71%** |
+| `slo:availability_error:ratio_rate5m` | 0% | 0% |
+
+**Angka SLI latency berubah cukup jauh (0.66% → 1.71%, ~2.6x).** Kesimpulan
+kualitatif ("availability tidak terdampak, tetap di bawah budget 1%")
+tetap benar di kedua pengukuran. Tapi angka presisinya **beda nyata**, dan
+kami tidak bisa memastikan seberapa besar bagian dari perbedaan ini murni
+akibat bug scrape vs variasi run-to-run yang wajar (lingkungan laptop tidak
+sepenuhnya deterministik, terlihat juga di variasi angka k6 antar-run di
+`docs/regression-baseline.md`). Yang bisa dipastikan: **arah perubahan
+konsisten** dengan skenario latency-injection di bawah (juga naik pasca-fix,
+lihat `postmortems/2026-09-15-latency-injection.md`) — pola ini
+mengindikasikan bug scrape kemungkinan secara sistematis **meremehkan**
+(understate) rasio "lambat" sebelum diperbaiki, bukan cuma noise acak.
+Kedua angka dicatat apa adanya sebagai bukti dampak nyata bug ini, bukan
+saling menimpa.
