@@ -1,0 +1,21 @@
+# k3s sudah bawa Traefik sebagai Ingress controller default, jadi tidak perlu
+# instal apa pun tambahan. Host "doko.local" perlu dipetakan manual ke
+# 127.0.0.1 di /etc/hosts saat tes lokal (lihat k8s/README.md).
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: doko
+  namespace: doko
+spec:
+  ingressClassName: traefik
+  rules:
+    - host: doko.local
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: frontend
+                port:
+                  number: 80

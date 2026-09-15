@@ -1,0 +1,57 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: backend
+  namespace: doko
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: backend
+  template:
+    metadata:
+      labels:
+        app: backend
+    spec:
+      containers:
+        - name: backend
+          # Image dibangun lokal lalu di-import ke k3d (lihat k8s/README.md).
+          # imagePullPolicy: IfNotPresent wajib, kalau tidak k3s akan coba
+          # pull dari registry publik dan gagal (image ini tidak dipublish).
+          image: doko-backend:local
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8080
+          env:
+            # "db" = nama Service Postgres (02-postgres.yaml), resolvable via
+            # DNS internal cluster karena satu namespace. server.js sudah baca
+            # dari env ini, jadi tidak perlu ubah kode apa pun.
+            - name: DB_HOST
+              value: db
+            - name: DB_USER
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-credentials
+                  key: POSTGRES_USER
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-credentials
+                  key: POSTGRES_PASSWORD
+            - name: DB_NAME
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-credentials
+                  key: POSTGRES_DB
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: backend
+  namespace: doko
+spec:
+  selector:
+    app: backend
+  ports:
+    - port: 8080
+      targetPort: 8080
